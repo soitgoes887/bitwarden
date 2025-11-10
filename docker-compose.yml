@@ -74,7 +74,7 @@ services:
       - bitwarden
 
   # Automated backup service
-  # Runs daily backups and uploads to S3
+  # Runs weekly backups and uploads to S3
   backup:
     build:
       context: .
@@ -93,7 +93,7 @@ services:
       AWS_ENDPOINT: ${AWS_ENDPOINT}
 
       # Backup retention
-      KEEP_LOCAL_BACKUPS: ${KEEP_LOCAL_BACKUPS:-7}
+      KEEP_LOCAL_BACKUPS: ${KEEP_LOCAL_BACKUPS:-3}
       DELETE_LOCAL_AFTER_UPLOAD: ${DELETE_LOCAL_AFTER_UPLOAD:-false}
 
       # Timezone

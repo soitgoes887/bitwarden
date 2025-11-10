@@ -213,12 +213,51 @@ pulumi up
 
 ## Troubleshooting
 
+### "SyntaxError: Unexpected token" or Node.js version issues
+
+If you see errors like:
+```
+SyntaxError: Unexpected token '.'
+```
+
+This means you're running an outdated version of Node.js. Check your version:
+```bash
+node --version
+```
+
+You need **Node.js 18 or higher**. To upgrade:
+
+**Using nvm (recommended):**
+```bash
+# Install Node.js 20 (LTS)
+nvm install 20
+nvm use 20
+
+# Verify the version
+node --version
+```
+
+**After upgrading, reinstall dependencies:**
+```bash
+cd infrastructure
+rm -rf node_modules package-lock.json
+npm install
+pulumi preview
+```
+
 ### "No credentials found"
 
 Make sure AWS CLI is configured:
 ```bash
 aws configure
 aws sts get-caller-identity
+```
+
+Alternatively, export AWS credentials:
+```bash
+export AWS_ACCESS_KEY_ID="your-access-key-id"
+export AWS_SECRET_ACCESS_KEY="your-secret-access-key"
+export AWS_REGION="eu-west-2"
 ```
 
 ### "Stack already exists"

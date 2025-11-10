@@ -15,8 +15,8 @@ COPY backup.sh /usr/local/bin/backup.sh
 RUN chmod +x /usr/local/bin/backup.sh
 
 # Create crontab file
-# Default: Run daily at 2 AM
-RUN echo "0 2 * * * /usr/local/bin/backup.sh >> /var/log/backup.log 2>&1" > /etc/crontabs/root
+# Default: Run weekly on Sunday at 2 AM
+RUN echo "0 2 * * 0 /usr/local/bin/backup.sh >> /var/log/backup.log 2>&1" > /etc/crontabs/root
 
 # Create log file
 RUN touch /var/log/backup.log
