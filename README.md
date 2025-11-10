@@ -226,7 +226,95 @@ docker compose up -d
 
 ## Backup
 
-### Backup the data directory:
+### Automated S3 Backups (Recommended)
+
+This setup includes an automated backup container that runs daily at 2 AM and uploads to AWS S3 (or S3-compatible storage).
+
+**Setup:**
+
+1. **Create an S3 bucket** (if using AWS):
+   - Go to https://s3.console.aws.amazon.com/
+   - Create a new bucket (e.g., `my-bitwarden-backups`)
+   - Region: `eu-west-2` (or your preferred region)
+
+2. **Create IAM credentials**:
+   - Go to https://console.aws.amazon.com/iam/
+   - Create a new user with S3 write permissions
+   - Save the Access Key ID and Secret Access Key
+
+3. **Configure `.env`** with your S3 credentials:
+   ```bash
+   AWS_ACCESS_KEY_ID=AKIA...
+   AWS_SECRET_ACCESS_KEY=...
+   AWS_REGION=eu-west-2
+   S3_BUCKET=my-bitwarden-backups
+   S3_PREFIX=bitwarden/
+   ```
+
+4. **Build and start the backup container**:
+   ```bash
+   docker compose up -d --build backup
+   ```
+
+**Features:**
+- Runs daily at 2 AM (London time)
+- Creates safe SQLite backups while database is running
+- Compresses backups with tar.gz
+- Uploads to S3 automatically
+- Keeps last 7 local backups
+- Logs all backup operations
+
+**Manual backup trigger:**
+```bash
+# Run backup immediately
+docker compose exec backup /usr/local/bin/backup.sh
+
+# View backup logs
+docker compose logs backup
+
+# View local backups
+ls -lh backups/
+```
+
+**Change backup schedule:**
+
+Edit `Dockerfile.backup` and change the cron expression:
+```dockerfile
+# Daily at 2 AM
+RUN echo "0 2 * * * /usr/local/bin/backup.sh >> /var/log/backup.log 2>&1" > /etc/crontabs/root
+
+# Every 6 hours
+RUN echo "0 */6 * * * /usr/local/bin/backup.sh >> /var/log/backup.log 2>&1" > /etc/crontabs/root
+
+# Weekly on Sunday at 3 AM
+RUN echo "0 3 * * 0 /usr/local/bin/backup.sh >> /var/log/backup.log 2>&1" > /etc/crontabs/root
+```
+
+Then rebuild: `docker compose up -d --build backup`
+
+### Alternative S3 Providers
+
+**Wasabi** (cheaper than AWS):
+```env
+AWS_ACCESS_KEY_ID=your-wasabi-key
+AWS_SECRET_ACCESS_KEY=your-wasabi-secret
+AWS_REGION=eu-central-1
+AWS_ENDPOINT=https://s3.eu-central-1.wasabisys.com
+S3_BUCKET=my-bucket
+```
+
+**Backblaze B2**:
+```env
+AWS_ACCESS_KEY_ID=your-b2-key-id
+AWS_SECRET_ACCESS_KEY=your-b2-application-key
+AWS_REGION=eu-central-003
+AWS_ENDPOINT=https://s3.eu-central-003.backblazeb2.com
+S3_BUCKET=my-bucket
+```
+
+### Manual Backup (Without S3)
+
+If you don't want automated S3 backups, you can backup manually:
 
 ```bash
 # Stop the container
@@ -239,14 +327,19 @@ tar -czf bitwarden-backup-$(date +%Y%m%d).tar.gz bw-data/
 docker compose up -d
 ```
 
-### Automated backup script:
+Or keep the backup container running for local backups only (don't set S3 credentials).
+
+### Restore from Backup
 
 ```bash
-#!/bin/bash
-BACKUP_DIR="./backups"
-mkdir -p $BACKUP_DIR
-docker compose exec bitwarden sqlite3 /data/db.sqlite3 ".backup '/data/db-backup.sqlite3'"
-cp ./bw-data/db-backup.sqlite3 $BACKUP_DIR/db-$(date +%Y%m%d-%H%M%S).sqlite3
+# Stop services
+docker compose down
+
+# Extract backup
+tar -xzf bitwarden-backup-20250110.tar.gz
+
+# Start services
+docker compose up -d
 ```
 
 ## Troubleshooting

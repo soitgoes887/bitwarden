@@ -1,0 +1,32 @@
+FROM alpine:latest
+
+# Install required packages
+RUN apk add --no-cache \
+    aws-cli \
+    sqlite \
+    tzdata \
+    bash
+
+# Set timezone (change as needed)
+ENV TZ=Europe/London
+
+# Copy backup script
+COPY backup.sh /usr/local/bin/backup.sh
+RUN chmod +x /usr/local/bin/backup.sh
+
+# Create crontab file
+# Default: Run daily at 2 AM
+RUN echo "0 2 * * * /usr/local/bin/backup.sh >> /var/log/backup.log 2>&1" > /etc/crontabs/root
+
+# Create log file
+RUN touch /var/log/backup.log
+
+# Create backups directory
+RUN mkdir -p /backups
+
+# Health check
+HEALTHCHECK --interval=1h --timeout=10s --start-period=5s \
+    CMD test -f /var/log/backup.log && tail -1 /var/log/backup.log | grep -q "Backup complete" || exit 0
+
+# Run crond in foreground
+CMD crond -f -l 2

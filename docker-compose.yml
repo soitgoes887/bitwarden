@@ -73,6 +73,39 @@ services:
     depends_on:
       - bitwarden
 
+  # Automated backup service
+  # Runs daily backups and uploads to S3
+  backup:
+    build:
+      context: .
+      dockerfile: Dockerfile.backup
+    container_name: bitwarden-backup
+    restart: unless-stopped
+    environment:
+      # AWS S3 Configuration
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_REGION: ${AWS_REGION:-eu-west-2}
+      S3_BUCKET: ${S3_BUCKET}
+      S3_PREFIX: ${S3_PREFIX:-bitwarden/}
+
+      # Optional: Custom S3 endpoint (for S3-compatible services like Wasabi, MinIO)
+      AWS_ENDPOINT: ${AWS_ENDPOINT}
+
+      # Backup retention
+      KEEP_LOCAL_BACKUPS: ${KEEP_LOCAL_BACKUPS:-7}
+      DELETE_LOCAL_AFTER_UPLOAD: ${DELETE_LOCAL_AFTER_UPLOAD:-false}
+
+      # Timezone
+      TZ: ${TZ:-Europe/London}
+    volumes:
+      - ./bw-data:/data:ro
+      - ./backups:/backups
+    networks:
+      - bitwarden-network
+    depends_on:
+      - bitwarden
+
 networks:
   bitwarden-network:
     driver: bridge
