@@ -15,8 +15,9 @@ COPY backup.sh /usr/local/bin/backup.sh
 RUN chmod +x /usr/local/bin/backup.sh
 
 # Create crontab file
-# Default: Run weekly on Sunday at 2 AM
-RUN echo "0 2 * * 0 /usr/local/bin/backup.sh >> /var/log/backup.log 2>&1" > /etc/crontabs/root
+# Default: Run weekly on Monday at 20:30 (8:30 PM)
+# Use tee to write logs to both file and stdout (for docker logs)
+RUN echo "30 20 * * 1 /usr/local/bin/backup.sh 2>&1 | tee -a /var/log/backup.log" > /etc/crontabs/root
 
 # Create log file
 RUN touch /var/log/backup.log

@@ -14,20 +14,24 @@ mkdir -p ${BACKUP_DIR}
 
 # Create SQLite backup (safe while database is running)
 echo "[$(date)] Creating SQLite backup..."
-sqlite3 /data/db.sqlite3 ".backup '/data/db-backup.sqlite3'"
+TEMP_DB="/tmp/db-backup.sqlite3"
+sqlite3 /data/db.sqlite3 ".backup '${TEMP_DB}'"
+
+# Copy backup to staging area for tar
+cp ${TEMP_DB} ${BACKUP_DIR}/db-backup.sqlite3
 
 # Create tar.gz of all data
 echo "[$(date)] Creating tar archive..."
 cd /data
 tar -czf ${BACKUP_PATH} \
-    db-backup.sqlite3 \
+    -C ${BACKUP_DIR} db-backup.sqlite3 \
     db.sqlite3-shm \
     db.sqlite3-wal \
     config.json \
     rsa_key* \
-    attachments/ \
-    sends/ \
-    icon_cache/ \
+    attachments \
+    sends \
+    icon_cache \
     2>/dev/null || true
 
 # Get file size
@@ -64,7 +68,8 @@ echo "[$(date)] Cleaning up old backups (keeping last ${KEEP_BACKUPS})..."
 cd ${BACKUP_DIR}
 ls -t bitwarden-backup-*.tar.gz | tail -n +$((KEEP_BACKUPS + 1)) | xargs -r rm -f
 
-# Clean up temporary SQLite backup
-rm -f /data/db-backup.sqlite3
+# Clean up temporary SQLite backups
+rm -f /tmp/db-backup.sqlite3
+rm -f ${BACKUP_DIR}/db-backup.sqlite3
 
 echo "[$(date)] Backup complete!"
