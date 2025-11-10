@@ -1,0 +1,36 @@
+vault.example.com {
+    # Replace vault.example.com with your actual domain
+
+    # Reverse proxy to Bitwarden
+    reverse_proxy bitwarden:80 {
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+    }
+
+    # WebSocket support for notifications
+    @websocket {
+        path /notifications/hub
+    }
+    reverse_proxy @websocket bitwarden:3012
+
+    # Security headers
+    header {
+        # Enable HSTS
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        # Prevent clickjacking
+        X-Frame-Options "SAMEORIGIN"
+        # Prevent MIME sniffing
+        X-Content-Type-Options "nosniff"
+        # XSS Protection
+        X-XSS-Protection "1; mode=block"
+        # Referrer Policy
+        Referrer-Policy "same-origin"
+    }
+
+    # Logging
+    log {
+        output file /data/caddy-access.log
+        level INFO
+    }
+}

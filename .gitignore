@@ -1,0 +1,23 @@
+# Environment files
+.env
+
+# Data directories
+bw-data/
+postgres-data/
+caddy-data/
+caddy-config/
+backups/
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
