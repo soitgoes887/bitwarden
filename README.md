@@ -226,20 +226,18 @@ docker compose up -d
 
 ## Backup
 
-### Automated S3 Backups (Recommended)
+### Automated S3 Backups
 
-This setup includes an automated backup container that runs daily at 2 AM and uploads to AWS S3 (or S3-compatible storage).
+This setup includes an automated backup container that runs weekly on Monday at 20:30 and uploads to AWS S3 (or S3-compatible storage).
 
 **Setup:**
-
-#### Option A: Infrastructure-as-Code (Recommended)
 
 Use Pulumi to automatically provision the S3 bucket and IAM credentials:
 
 ```bash
 cd infrastructure
 npm install
-pulumi login
+pulumi login --local  # Or use Pulumi Cloud
 pulumi stack init prod
 pulumi up
 ```
@@ -248,47 +246,38 @@ The infrastructure will be created and credentials will be output. Copy them to 
 
 See [infrastructure/README.md](infrastructure/README.md) for detailed instructions.
 
-#### Option B: Manual Setup
+**Backup Configuration:**
 
-1. **Create an S3 bucket**:
-   - Go to https://s3.console.aws.amazon.com/
-   - Create a new bucket (e.g., `my-bitwarden-backups`)
-   - Region: `eu-west-2` (or your preferred region)
+Configure `.env` with your S3 credentials (output by Pulumi):
+```bash
+AWS_ACCESS_KEY_ID=AKIA...
+AWS_SECRET_ACCESS_KEY=...
+AWS_REGION=eu-west-2
+S3_BUCKET=bitwarden-backup-...
+S3_PREFIX=bitwarden/
+KEEP_LOCAL_BACKUPS=3
+```
 
-2. **Create IAM credentials**:
-   - Go to https://console.aws.amazon.com/iam/
-   - Create a new user with S3 write permissions
-   - Save the Access Key ID and Secret Access Key
-
-3. **Configure `.env`** with your S3 credentials:
-   ```bash
-   AWS_ACCESS_KEY_ID=AKIA...
-   AWS_SECRET_ACCESS_KEY=...
-   AWS_REGION=eu-west-2
-   S3_BUCKET=my-bitwarden-backups
-   S3_PREFIX=bitwarden/
-   ```
-
-4. **Build and start the backup container**:
-   ```bash
-   docker compose up -d --build backup
-   ```
+**Build and start the backup container**:
+```bash
+docker compose up -d --build backup
+```
 
 **Features:**
-- Runs daily at 2 AM (London time)
+- Runs weekly on Monday at 20:30 (London time)
 - Creates safe SQLite backups while database is running
 - Compresses backups with tar.gz
 - Uploads to S3 automatically
-- Keeps last 7 local backups
+- Keeps last 3 local backups
 - Logs all backup operations
 
 **Manual backup trigger:**
 ```bash
 # Run backup immediately
-docker compose exec backup /usr/local/bin/backup.sh
+docker exec bitwarden-backup /usr/local/bin/backup.sh
 
 # View backup logs
-docker compose logs backup
+docker logs bitwarden-backup
 
 # View local backups
 ls -lh backups/
@@ -296,17 +285,7 @@ ls -lh backups/
 
 **Change backup schedule:**
 
-Edit `Dockerfile.backup` and change the cron expression:
-```dockerfile
-# Daily at 2 AM
-RUN echo "0 2 * * * /usr/local/bin/backup.sh >> /var/log/backup.log 2>&1" > /etc/crontabs/root
-
-# Every 6 hours
-RUN echo "0 */6 * * * /usr/local/bin/backup.sh >> /var/log/backup.log 2>&1" > /etc/crontabs/root
-
-# Weekly on Sunday at 3 AM
-RUN echo "0 3 * * 0 /usr/local/bin/backup.sh >> /var/log/backup.log 2>&1" > /etc/crontabs/root
-```
+Edit `Dockerfile.backup` line 20 and change the cron expression. See [Crontab Guru](https://crontab.guru/) for syntax help.
 
 Then rebuild: `docker compose up -d --build backup`
 
@@ -330,34 +309,72 @@ AWS_ENDPOINT=https://s3.eu-central-003.backblazeb2.com
 S3_BUCKET=my-bucket
 ```
 
-### Manual Backup (Without S3)
+## Disaster Recovery
 
-If you don't want automated S3 backups, you can backup manually:
+### Restore from S3 Backup
+
+Use the automated restore script to recover your vault from an S3 backup:
 
 ```bash
-# Stop the container
+# Make the script executable (first time only)
+chmod +x restore.sh
+
+# Restore the latest backup from S3
+./restore.sh
+
+# Or restore a specific backup
+./restore.sh bitwarden-backup-20250110-143022.tar.gz
+```
+
+The script will:
+1. List available backups in S3
+2. Download the latest (or specified) backup
+3. Stop all containers
+4. Backup current data directory (as `bw-data.backup-TIMESTAMP`)
+5. Extract backup to the data directory
+6. Restart all containers
+
+**The script is interactive** - it will ask for confirmation before proceeding and show you what will happen.
+
+**Manual restore process:**
+
+If you need to restore manually:
+
+```bash
+# 1. Stop services
 docker compose down
 
-# Backup data
-tar -czf bitwarden-backup-$(date +%Y%m%d).tar.gz bw-data/
+# 2. Download backup from S3 (if not already local)
+aws s3 cp s3://your-bucket/bitwarden/bitwarden-backup-YYYYMMDD.tar.gz ./backups/
 
-# Restart
+# 3. Backup current data (optional)
+mv bw-data bw-data.old
+
+# 4. Extract backup
+cd bw-data
+tar -xzf ../backups/bitwarden-backup-YYYYMMDD.tar.gz
+cd ..
+
+# 5. Start services
 docker compose up -d
 ```
 
-Or keep the backup container running for local backups only (don't set S3 credentials).
+### Testing Backups
 
-### Restore from Backup
+Regularly test your backups to ensure they work:
 
 ```bash
-# Stop services
-docker compose down
+# 1. List backups in S3
+aws s3 ls s3://your-bucket/bitwarden/
 
-# Extract backup
-tar -xzf bitwarden-backup-20250110.tar.gz
+# 2. Download a backup
+aws s3 cp s3://your-bucket/bitwarden/bitwarden-backup-YYYYMMDD.tar.gz ./test-restore.tar.gz
 
-# Start services
-docker compose up -d
+# 3. Verify archive integrity
+tar -tzf test-restore.tar.gz
+
+# 4. Check backup contains expected files
+tar -tzf test-restore.tar.gz | grep -E "db-backup.sqlite3|config.json|rsa_key"
 ```
 
 ## Troubleshooting

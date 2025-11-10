@@ -3,6 +3,7 @@
 
 # Data directories
 bw-data/
+bw-data.backup-*/
 postgres-data/
 caddy-data/
 caddy-config/
