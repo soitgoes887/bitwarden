@@ -1,4 +1,4 @@
-vault.example.com {
+bitwarden-887.onthewifi.com {
     # Replace vault.example.com with your actual domain
 
     # Reverse proxy to Bitwarden (handles both HTTP and WebSocket)
