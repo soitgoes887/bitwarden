@@ -28,6 +28,8 @@ services:
 
       # Security
       WEBSOCKET_ENABLED: ${WEBSOCKET_ENABLED:-true}
+      WEBSOCKET_ADDRESS: 0.0.0.0
+      WEBSOCKET_PORT: 3012
       WEB_VAULT_ENABLED: ${WEB_VAULT_ENABLED:-true}
 
     volumes:
