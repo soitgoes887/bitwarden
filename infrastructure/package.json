@@ -1,0 +1,20 @@
+{
+  "name": "bitwarden-backup-infrastructure",
+  "version": "1.0.0",
+  "description": "Pulumi infrastructure for Bitwarden backup S3 storage",
+  "main": "index.ts",
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf bin/",
+    "deploy": "pulumi up",
+    "destroy": "pulumi destroy"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "@pulumi/aws": "^6.0.0",
+    "@pulumi/pulumi": "^3.0.0"
+  }
+}

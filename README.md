@@ -232,7 +232,25 @@ This setup includes an automated backup container that runs daily at 2 AM and up
 
 **Setup:**
 
-1. **Create an S3 bucket** (if using AWS):
+#### Option A: Infrastructure-as-Code (Recommended)
+
+Use Pulumi to automatically provision the S3 bucket and IAM credentials:
+
+```bash
+cd infrastructure
+npm install
+pulumi login
+pulumi stack init prod
+pulumi up
+```
+
+The infrastructure will be created and credentials will be output. Copy them to your `.env` file.
+
+See [infrastructure/README.md](infrastructure/README.md) for detailed instructions.
+
+#### Option B: Manual Setup
+
+1. **Create an S3 bucket**:
    - Go to https://s3.console.aws.amazon.com/
    - Create a new bucket (e.g., `my-bitwarden-backups`)
    - Region: `eu-west-2` (or your preferred region)

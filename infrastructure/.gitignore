@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+package-lock.json
+
+# Build output
+bin/
+
+# Pulumi
+Pulumi.*.yaml
+.pulumi/
+
+# TypeScript
+*.js
+*.js.map
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo

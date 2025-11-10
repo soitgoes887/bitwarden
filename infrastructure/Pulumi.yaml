@@ -1,0 +1,8 @@
+name: bitwarden-backup-infrastructure
+runtime: nodejs
+description: AWS infrastructure for Bitwarden backup storage
+
+config:
+  aws:region:
+    description: AWS region for the S3 bucket
+    default: eu-west-2
