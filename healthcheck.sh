@@ -25,12 +25,13 @@ else
     ALL_HEALTHY=false
 fi
 
-# Check Caddy
+# Check Caddy (expect 403 "Access denied" - means Caddy is running correctly)
 echo "[$(date)] Checking Caddy at ${CADDY_ADMIN_URL}..."
-if curl -f -s -m 5 --retry 2 "${CADDY_ADMIN_URL}" > /dev/null 2>&1; then
-    echo "[$(date)] ✓ Caddy is healthy"
+CADDY_RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -m 5 --retry 2 "${CADDY_ADMIN_URL}" 2>&1)
+if [ "${CADDY_RESPONSE}" = "403" ] || [ "${CADDY_RESPONSE}" = "200" ]; then
+    echo "[$(date)] ✓ Caddy is healthy (HTTP ${CADDY_RESPONSE})"
 else
-    echo "[$(date)] ✗ Caddy health check FAILED"
+    echo "[$(date)] ✗ Caddy health check FAILED (HTTP ${CADDY_RESPONSE})"
     ALL_HEALTHY=false
 fi
 
