@@ -13,7 +13,7 @@ fi
 
 # Configuration
 BITWARDEN_URL="http://bitwarden:80/"
-CADDY_ADMIN_URL="http://caddy:2019/"
+CADDY_ADMIN_URL="http://caddy:80/"
 ALL_HEALTHY=true
 
 # Check Bitwarden
