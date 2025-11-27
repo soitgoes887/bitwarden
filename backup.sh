@@ -1,7 +1,15 @@
 #!/bin/sh
 set -e
 
+# Trap errors and send failure notification
+trap 'if [ -n "${HEALTHCHECK_URL}" ]; then curl -m 10 --retry 5 -s "${HEALTHCHECK_URL}/fail" || true; fi' ERR
+
 echo "[$(date)] Starting Bitwarden backup..."
+
+# Ping healthcheck start
+if [ -n "${HEALTHCHECK_URL}" ]; then
+    curl -m 10 --retry 5 -s "${HEALTHCHECK_URL}/start" || true
+fi
 
 # Configuration
 BACKUP_DIR="/backups"
@@ -73,3 +81,8 @@ rm -f /tmp/db-backup.sqlite3
 rm -f ${BACKUP_DIR}/db-backup.sqlite3
 
 echo "[$(date)] Backup complete!"
+
+# Ping healthcheck success
+if [ -n "${HEALTHCHECK_URL}" ]; then
+    curl -m 10 --retry 5 -s "${HEALTHCHECK_URL}" || true
+fi

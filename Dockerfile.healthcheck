@@ -1,0 +1,29 @@
+FROM alpine:latest
+
+# Install required packages
+RUN apk add --no-cache \
+    curl \
+    tzdata \
+    bash
+
+# Set timezone (change as needed)
+ENV TZ=Europe/London
+
+# Copy healthcheck script
+COPY healthcheck.sh /usr/local/bin/healthcheck.sh
+RUN chmod +x /usr/local/bin/healthcheck.sh
+
+# Create crontab file
+# Run every 5 minutes to monitor service health
+# Use tee to write logs to both file and stdout (for docker logs)
+RUN echo "*/5 * * * * /usr/local/bin/healthcheck.sh 2>&1 | tee -a /var/log/healthcheck.log" > /etc/crontabs/root
+
+# Create log file
+RUN touch /var/log/healthcheck.log
+
+# Health check - verify the monitoring script itself is working
+HEALTHCHECK --interval=10m --timeout=10s --start-period=30s \
+    CMD test -f /var/log/healthcheck.log && tail -1 /var/log/healthcheck.log | grep -q "Health check complete" || exit 0
+
+# Run crond in foreground
+CMD crond -f -l 2

@@ -41,6 +41,17 @@ services:
       - "3012"
     networks:
       - bitwarden-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80/"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # Optional: PostgreSQL Database
   # Uncomment if you want to use PostgreSQL instead of SQLite
@@ -74,6 +85,17 @@ services:
       - bitwarden-network
     depends_on:
       - bitwarden
+    healthcheck:
+      test: ["CMD", "caddy", "validate", "--config", "/etc/caddy/Caddyfile"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # Automated backup service
   # Runs weekly backups and uploads to S3
@@ -98,6 +120,9 @@ services:
       KEEP_LOCAL_BACKUPS: ${KEEP_LOCAL_BACKUPS:-3}
       DELETE_LOCAL_AFTER_UPLOAD: ${DELETE_LOCAL_AFTER_UPLOAD:-false}
 
+      # Healthchecks.io monitoring
+      HEALTHCHECK_URL: ${HEALTHCHECK_URL:-https://hc-ping.com/899194da-c3ed-4ff0-b672-2fc7aaa3cfe9}
+
       # Timezone
       TZ: ${TZ:-Europe/London}
     volumes:
@@ -107,6 +132,36 @@ services:
       - bitwarden-network
     depends_on:
       - bitwarden
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Health monitoring service
+  # Checks all services and reports to healthchecks.io
+  healthcheck:
+    build:
+      context: .
+      dockerfile: Dockerfile.healthcheck
+    container_name: bitwarden-healthcheck
+    restart: unless-stopped
+    environment:
+      # Healthchecks.io monitoring URL
+      HEALTHCHECK_URL: ${SYSTEM_HEALTHCHECK_URL:-https://hc-ping.com/e3747dbd-9bae-40bb-b334-73252b9e3730}
+
+      # Timezone
+      TZ: ${TZ:-Europe/London}
+    networks:
+      - bitwarden-network
+    depends_on:
+      - bitwarden
+      - caddy
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 networks:
   bitwarden-network:

@@ -5,7 +5,8 @@ RUN apk add --no-cache \
     aws-cli \
     sqlite \
     tzdata \
-    bash
+    bash \
+    curl
 
 # Set timezone (change as needed)
 ENV TZ=Europe/London
