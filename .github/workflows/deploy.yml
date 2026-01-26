@@ -1,0 +1,78 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  DOCKER_IMAGE: anicu/vaultwarden
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate version tag
+        id: version
+        run: |
+          DATE=$(date +'%Y.%m.%d')
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          echo "tag=${DATE}-${SHORT_SHA}" >> $GITHUB_OUTPUT
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Pulumi
+        uses: pulumi/actions@v5
+
+      - name: Install infrastructure dependencies
+        working-directory: infrastructure
+        run: npm install
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-west-2
+
+      - name: Setup kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG }}" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Deploy with Pulumi
+        working-directory: infrastructure
+        env:
+          PULUMI_CONFIG_PASSPHRASE: ${{ secrets.PULUMI_CONFIG_PASSPHRASE }}
+        run: |
+          pulumi login s3://bitwarden-pulumi-state
+          pulumi stack select --create dev
+          pulumi config set aws:region eu-west-2
+          pulumi up --yes
+
+      - name: Verify deployment
+        run: |
+          kubectl rollout status deployment/bitwarden -n bitwarden --timeout=120s
+
+      - name: Create GitHub Release
+        uses: ncipollo/release-action@v1
+        with:
+          tag: v${{ steps.version.outputs.tag }}
+          name: v${{ steps.version.outputs.tag }}
+          body: |
+            Automated release from commit ${{ github.sha }}
+
+            **Changes:** ${{ github.event.head_commit.message }}
+          generateReleaseNotes: true
+          skipIfReleaseExists: true
