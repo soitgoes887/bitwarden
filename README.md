@@ -1,471 +1,201 @@
-# Bitwarden Self-Hosted Setup for Raspberry Pi
+# Bitwarden Self-Hosted (Vaultwarden)
 
-This repository contains a Docker Compose setup for running a self-hosted Bitwarden instance using [Vaultwarden](https://github.com/dani-garcia/vaultwarden) (an unofficial Bitwarden-compatible server written in Rust) on a Raspberry Pi at home.
+Self-hosted [Vaultwarden](https://github.com/dani-garcia/vaultwarden) password manager running on Kubernetes (AWS).
 
-**Configuration**: Raspberry Pi with external IP 81.96.238.148 (Virgin Media UK)
+**URL**: https://bitwarden.win
+
+## Architecture
+
+- **Kubernetes**: Self-managed K8s cluster on AWS (ARM64 Graviton instances)
+- **Infrastructure**: Pulumi (TypeScript)
+- **Storage**: hostPath PersistentVolume (100Mi)
+- **Ingress**: nginx-ingress with Cloudflare SSL
+- **Backups**: Weekly CronJob to S3
+- **Email**: AWS SES
 
 ## Prerequisites
 
-- Raspberry Pi (3B+ or newer recommended)
-- Docker Engine 20.10.0 or later
-- Docker Compose v2.0.0 or later
-- A domain name or DDNS service (see setup below)
-- Virgin Media router access for port forwarding
+- AWS CLI configured
+- kubectl configured for your cluster
+- Pulumi CLI
+- Node.js 20+
 
-## Quick Start
+## Initial Setup
 
-### 0. Setup Domain Name (REQUIRED)
-
-You need a domain name for HTTPS to work. Choose one option:
-
-#### Option A: Free DDNS Service (Recommended for Home Use)
-
-**DuckDNS** (easiest):
-1. Go to https://www.duckdns.org
-2. Sign in with your preferred account
-3. Create a subdomain (e.g., `yourname.duckdns.org`)
-4. Set the IP to: `81.96.238.148`
-5. Note your token for automatic updates (optional)
-
-**No-IP**:
-1. Go to https://www.noip.com
-2. Create a free account
-3. Create a hostname pointing to `81.96.238.148`
-
-#### Option B: Own Domain Name
-
-Point your domain's A record to `81.96.238.148`
-
-### 1. Clone and Configure
+### 1. Create S3 Bucket for Pulumi State
 
 ```bash
-# Copy the example environment file
-cp .env.example .env
-
-# Generate a secure admin token
-openssl rand -base64 48
-
-# Edit the .env file with your settings
-nano .env
+./setup-s3-backend.sh
 ```
 
-**IMPORTANT**: Edit the `Caddyfile` and replace `vault.example.com` with your actual domain (e.g., `yourname.duckdns.org`)
-
-```bash
-nano Caddyfile
-```
-
-### 2. Essential Configuration
-
-Edit `.env` and set at minimum:
-
-- `DOMAIN`: Your full domain URL (e.g., `https://yourname.duckdns.org`)
-- `ADMIN_TOKEN`: Secure token generated above
-- `SIGNUPS_ALLOWED`: Set to `false` after creating your accounts
-
-### 3. Virgin Media Router Port Forwarding (CRITICAL)
-
-You MUST forward ports from your router to your Raspberry Pi:
-
-1. **Find your Raspberry Pi's local IP**:
-   ```bash
-   hostname -I
-   ```
-   (e.g., `192.168.0.50`)
-
-2. **Access Virgin Media Hub**:
-   - Open browser and go to: `http://192.168.0.1`
-   - Login with admin password (on the back of your router)
-
-3. **Setup Port Forwarding**:
-   - Navigate to: **Advanced Settings** → **Security** → **Port Forwarding**
-   - Add TWO port forwarding rules:
-
-   **Rule 1 - HTTPS:**
-   - Service Name: `Bitwarden-HTTPS`
-   - Protocol: `TCP`
-   - External Port: `443`
-   - Internal Port: `443`
-   - Internal IP: `[Your Pi's IP, e.g., 192.168.0.50]`
-   - Enable: `Yes`
-
-   **Rule 2 - HTTP (for Let's Encrypt):**
-   - Service Name: `Bitwarden-HTTP`
-   - Protocol: `TCP`
-   - External Port: `80`
-   - Internal Port: `80`
-   - Internal IP: `[Your Pi's IP, e.g., 192.168.0.50]`
-   - Enable: `Yes`
-
-4. **Save Settings** and wait for router to restart if needed
-
-### 4. Start Bitwarden
-
-```bash
-# Start the services
-docker compose up -d
-
-# Watch the logs (especially important for first run to see SSL certificate generation)
-docker compose logs -f
-
-# Wait for "certificate obtained successfully" message from Caddy
-# Press Ctrl+C to exit logs once services are running
-```
-
-### 5. Access Your Vault
-
-- Web Vault: `https://yourname.duckdns.org` (or your domain)
-- Admin Panel: `https://yourname.duckdns.org/admin` (use your ADMIN_TOKEN)
-
-**Note**: First startup may take 1-2 minutes while Caddy obtains SSL certificates from Let's Encrypt.
-
-## Virgin Media Specific Notes
-
-### Router Models
-Most Virgin Media customers have one of these Hub models:
-- Hub 3 (white, VMDG505)
-- Hub 4 (white, TG2492LG)
-- Hub 5 (black, VMG8825-T50K)
-
-All models support port forwarding via the web interface at `http://192.168.0.1`
-
-### Common Virgin Media Issues
-
-1. **Dynamic IP Address**: Your IP (81.96.238.148) may change if your router restarts
-   - Use a DDNS service to automatically update your domain
-   - Consider setting up DuckDNS auto-update on your Pi
-
-2. **Modem Mode**: If someone has enabled "Modem Mode" on your Hub, port forwarding won't work
-   - Check router interface - it should say "Router Mode"
-
-3. **Static IP from Pi**: Set your Raspberry Pi to have a static local IP
-   ```bash
-   # Edit dhcpcd.conf
-   sudo nano /etc/dhcpcd.conf
-
-   # Add at the end (adjust to your network):
-   interface eth0
-   static ip_address=192.168.0.50/24
-   static routers=192.168.0.1
-   static domain_name_servers=192.168.0.1 8.8.8.8
-
-   # Reboot
-   sudo reboot
-   ```
-
-## Configuration Options
-
-### Security Settings
-
-After creating your initial accounts, it's recommended to:
-
-```env
-SIGNUPS_ALLOWED=false
-INVITATIONS_ALLOWED=true  # Allow inviting users via admin panel
-```
-
-### SMTP Configuration (Email Support)
-
-To enable email notifications (password resets, etc.), configure SMTP:
-
-```env
-SMTP_HOST=smtp.gmail.com
-SMTP_FROM=bitwarden@example.com
-SMTP_PORT=587
-SMTP_SECURITY=starttls
-SMTP_USERNAME=your-email@example.com
-SMTP_PASSWORD=your-app-password
-```
-
-### Database Options
-
-**SQLite (Default)**: No additional configuration needed. Data stored in `./bw-data/`
-
-**PostgreSQL**: Uncomment the postgres service in `docker-compose.yml` and configure:
-
-```env
-DATABASE_URL=postgresql://bitwarden:password@postgres:5432/bitwarden
-DB_USER=bitwarden
-DB_PASSWORD=your-secure-password
-DB_NAME=bitwarden
-```
-
-## HTTPS/SSL Setup
-
-**This setup includes Caddy reverse proxy** which automatically handles SSL certificates from Let's Encrypt. No manual SSL configuration needed!
-
-Caddy will automatically:
-- Obtain SSL certificates on first startup
-- Renew certificates before expiry
-- Handle HTTP to HTTPS redirects
-
-Just ensure:
-1. Your domain points to 81.96.238.148
-2. Ports 80 and 443 are forwarded in your Virgin Media router
-3. The `Caddyfile` has your correct domain name
-
-## Docker Commands
-
-```bash
-# Start services
-docker compose up -d
-
-# Stop services
-docker compose down
-
-# View logs
-docker compose logs -f
-
-# Restart Bitwarden
-docker compose restart bitwarden
-
-# Update to latest version
-docker compose pull
-docker compose up -d
-```
-
-## Backup
-
-### Automated S3 Backups
-
-This setup includes an automated backup container that runs weekly on Monday at 20:30 and uploads to AWS S3 (or S3-compatible storage).
-
-**Setup:**
-
-Use Pulumi to automatically provision the S3 bucket and IAM credentials:
+### 2. Configure Pulumi
 
 ```bash
 cd infrastructure
 npm install
-pulumi login --local  # Or use Pulumi Cloud
-pulumi stack init prod
+pulumi login s3://bitwarden-pulumi-state
+pulumi stack select --create dev
+
+# Set required config
+pulumi config set aws:region eu-west-2
+
+# Admin token (for /admin panel)
+pulumi config set --secret adminToken $(openssl rand -base64 48)
+
+# SMTP (AWS SES)
+pulumi config set smtp:username <SES_SMTP_USERNAME>
+pulumi config set --secret smtp:password '<SES_SMTP_PASSWORD>'
+pulumi config set smtp:from hello@bitwarden.win
+
+# Backup S3 bucket (from existing infrastructure)
+pulumi config set backup:awsAccessKeyId <BACKUP_AWS_KEY>
+pulumi config set --secret backup:awsSecretAccessKey '<BACKUP_AWS_SECRET>'
+pulumi config set backup:s3Bucket <BACKUP_BUCKET_NAME>
+```
+
+### 3. Deploy
+
+```bash
 pulumi up
 ```
 
-The infrastructure will be created and credentials will be output. Copy them to your `.env` file.
+### 4. Configure DNS
 
-See [infrastructure/README.md](infrastructure/README.md) for detailed instructions.
+Add CNAME record in Cloudflare:
+- **Name**: `@` (root) or subdomain
+- **Target**: `k8s-ingress-nlb-70de6d0-84458ff0cf344e9f.elb.ap-south-1.amazonaws.com`
+- **Proxy**: Enabled (orange cloud)
 
-**Backup Configuration:**
+## CI/CD
 
-Configure `.env` with your S3 credentials (output by Pulumi):
-```bash
-AWS_ACCESS_KEY_ID=AKIA...
-AWS_SECRET_ACCESS_KEY=...
-AWS_REGION=eu-west-2
-S3_BUCKET=bitwarden-backup-...
-S3_PREFIX=bitwarden/
-KEEP_LOCAL_BACKUPS=3
-```
+GitHub Actions workflows:
 
-**Build and start the backup container**:
-```bash
-docker compose up -d --build backup
-```
+- **PR Validation** (`.github/workflows/pr-validation.yml`): TypeScript check + Pulumi preview
+- **Deploy** (`.github/workflows/deploy.yml`): Pulumi up on merge to main
 
-**Features:**
-- Runs weekly on Monday at 20:30 (London time)
-- Creates safe SQLite backups while database is running
-- Compresses backups with tar.gz
-- Uploads to S3 automatically
-- Keeps last 3 local backups
-- Logs all backup operations
+### Required GitHub Secrets
 
-**Manual backup trigger:**
-```bash
-# Run backup immediately
-docker exec bitwarden-backup /usr/local/bin/backup.sh
+| Secret | Description |
+|--------|-------------|
+| `AWS_ACCESS_KEY_ID` | AWS credentials |
+| `AWS_SECRET_ACCESS_KEY` | AWS credentials |
+| `KUBECONFIG` | Base64-encoded kubeconfig |
+| `PULUMI_CONFIG_PASSPHRASE` | Pulumi encryption passphrase |
 
-# View backup logs
-docker logs bitwarden-backup
+## Operations
 
-# View local backups
-ls -lh backups/
-```
-
-**Change backup schedule:**
-
-Edit `Dockerfile.backup` line 20 and change the cron expression. See [Crontab Guru](https://crontab.guru/) for syntax help.
-
-Then rebuild: `docker compose up -d --build backup`
-
-### Alternative S3 Providers
-
-**Wasabi** (cheaper than AWS):
-```env
-AWS_ACCESS_KEY_ID=your-wasabi-key
-AWS_SECRET_ACCESS_KEY=your-wasabi-secret
-AWS_REGION=eu-central-1
-AWS_ENDPOINT=https://s3.eu-central-1.wasabisys.com
-S3_BUCKET=my-bucket
-```
-
-**Backblaze B2**:
-```env
-AWS_ACCESS_KEY_ID=your-b2-key-id
-AWS_SECRET_ACCESS_KEY=your-b2-application-key
-AWS_REGION=eu-central-003
-AWS_ENDPOINT=https://s3.eu-central-003.backblazeb2.com
-S3_BUCKET=my-bucket
-```
-
-## Disaster Recovery
-
-### Restore from S3 Backup
-
-Use the automated restore script to recover your vault from an S3 backup:
+### View Logs
 
 ```bash
-# Make the script executable (first time only)
-chmod +x restore.sh
-
-# Restore the latest backup from S3
-./restore.sh
-
-# Or restore a specific backup
-./restore.sh bitwarden-backup-20250110-143022.tar.gz
+kubectl logs -n bitwarden -l app=bitwarden -f
 ```
 
-The script will:
-1. List available backups in S3
-2. Download the latest (or specified) backup
-3. Stop all containers
-4. Backup current data directory (as `bw-data.backup-TIMESTAMP`)
-5. Extract backup to the data directory
-6. Restart all containers
-
-**The script is interactive** - it will ask for confirmation before proceeding and show you what will happen.
-
-**Manual restore process:**
-
-If you need to restore manually:
+### Restart Deployment
 
 ```bash
-# 1. Stop services
-docker compose down
-
-# 2. Download backup from S3 (if not already local)
-aws s3 cp s3://your-bucket/bitwarden/bitwarden-backup-YYYYMMDD.tar.gz ./backups/
-
-# 3. Backup current data (optional)
-mv bw-data bw-data.old
-
-# 4. Extract backup
-cd bw-data
-tar -xzf ../backups/bitwarden-backup-YYYYMMDD.tar.gz
-cd ..
-
-# 5. Start services
-docker compose up -d
+kubectl rollout restart deployment/bitwarden -n bitwarden
 ```
 
-### Testing Backups
+### Access Admin Panel
 
-Regularly test your backups to ensure they work:
+1. Get admin token: `pulumi config get adminToken`
+2. Go to https://bitwarden.win/admin
+3. Enter the token
+
+### Invite Users
+
+1. Access admin panel
+2. Go to "Users" tab
+3. Enter email and click "Invite"
+4. User receives email invitation (requires SES production access or verified email)
+
+## Backups
+
+Automated weekly backups run every Sunday at 2 AM via CronJob.
+
+### Manual Backup
 
 ```bash
-# 1. List backups in S3
-aws s3 ls s3://your-bucket/bitwarden/
-
-# 2. Download a backup
-aws s3 cp s3://your-bucket/bitwarden/bitwarden-backup-YYYYMMDD.tar.gz ./test-restore.tar.gz
-
-# 3. Verify archive integrity
-tar -tzf test-restore.tar.gz
-
-# 4. Check backup contains expected files
-tar -tzf test-restore.tar.gz | grep -E "db-backup.sqlite3|config.json|rsa_key"
+kubectl create job --from=cronjob/bitwarden-backup manual-backup -n bitwarden
+kubectl logs -n bitwarden -l job-name=manual-backup -f
 ```
 
-## Troubleshooting
+### List Backups
 
-### Cannot access the web vault
+```bash
+aws s3 ls s3://<BACKUP_BUCKET>/bitwarden/
+```
 
-1. Check if containers are running: `docker compose ps`
-2. Check logs: `docker compose logs -f`
-3. Verify port forwarding is correct in Virgin Media router
-4. Test if ports are open: https://www.yougetsignal.com/tools/open-ports/
-   - Enter 81.96.238.148 and test ports 80 and 443
-5. Verify domain DNS is pointing to 81.96.238.148:
-   ```bash
-   nslookup yourname.duckdns.org
-   ```
-6. Check Caddy logs specifically: `docker compose logs caddy`
+### Restore from Backup
 
-### SSL Certificate Issues
+```bash
+# Download backup
+aws s3 cp s3://<BACKUP_BUCKET>/bitwarden/backup-YYYYMMDD-HHMMSS.tar.gz ./
 
-1. **"certificate obtain failed"**:
-   - Ensure ports 80 and 443 are forwarded correctly
-   - Verify domain points to your IP
-   - Check Caddy logs: `docker compose logs caddy`
+# Stop pod
+kubectl scale deployment/bitwarden -n bitwarden --replicas=0
 
-2. **"connection not secure" warning**:
-   - Wait 1-2 minutes for certificate generation on first start
-   - Check if Let's Encrypt can reach your server
+# SSH to node and restore
+ssh <node>
+cd /data/bitwarden
+tar -xzf /path/to/backup.tar.gz
 
-### Cannot access from outside home network
+# Start pod
+kubectl scale deployment/bitwarden -n bitwarden --replicas=1
+```
 
-1. Verify your public IP hasn't changed:
-   ```bash
-   curl ifconfig.me
-   ```
-   Should return: `81.96.238.148`
+## AWS SES Setup
 
-2. If IP changed, update your DDNS service
+Domain `bitwarden.win` is verified in AWS SES (eu-west-2) with DKIM.
 
-3. Test port forwarding from outside your network (use mobile data)
+### Verify New Recipient (Sandbox Mode)
 
-### Email not working
+```bash
+aws ses verify-email-identity --email-address user@example.com --region eu-west-2
+```
 
-1. Verify SMTP credentials in `.env`
-2. Check logs for SMTP errors
-3. For Gmail, use an [App Password](https://support.google.com/accounts/answer/185833)
+### Check Verification Status
 
-### Admin panel not accessible
+```bash
+aws ses get-identity-verification-attributes --identities bitwarden.win --region eu-west-2
+```
 
-1. Ensure `ADMIN_TOKEN` is set in `.env`
-2. Navigate to `/admin` and enter the token
-3. Check that `WEB_VAULT_ENABLED=true`
+## Infrastructure Resources
 
-## Security Best Practices
+Pulumi manages:
 
-1. **Use HTTPS**: Always use SSL/TLS in production
-2. **Disable Signups**: Set `SIGNUPS_ALLOWED=false` after account creation
-3. **Strong Admin Token**: Use `openssl rand -base64 48`
-4. **Regular Backups**: Automate database backups
-5. **Update Regularly**: Run `docker compose pull` periodically
-6. **Firewall**: Restrict access to ports 80/443 only
-7. **2FA**: Enable two-factor authentication for all accounts
+**AWS:**
+- S3 bucket for backups (with lifecycle policies)
+- IAM user for backup access
+- S3 bucket for Pulumi state
+
+**Kubernetes:**
+- Namespace: `bitwarden`
+- PersistentVolume/PVC: hostPath at `/data/bitwarden`
+- Deployment: vaultwarden/server:latest
+- Service: NodePort 30082 (HTTP), 30083 (WebSocket)
+- Ingress: nginx-ingress for bitwarden.win
+- CronJob: Weekly S3 backups
+- ConfigMap: Non-sensitive config
+- Secret: ADMIN_TOKEN, SMTP password, AWS credentials
+
+## Security
+
+- Signups disabled by default
+- Admin panel protected by token
+- HTTPS via Cloudflare
+- Secrets managed in Pulumi (encrypted)
+- S3 backup bucket encrypted (AES256)
 
 ## Client Apps
 
-Download official Bitwarden clients:
+Configure clients to use `https://bitwarden.win` as the server URL:
 
 - Browser Extensions: Chrome, Firefox, Safari, Edge
 - Desktop: Windows, macOS, Linux
 - Mobile: iOS, Android
-- CLI: `npm install -g @bitwarden/cli`
-
-Configure clients to use your self-hosted instance by setting the server URL during login.
-
-## Environment Variables Reference
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| DOMAIN | https://vault.example.com | Public URL of your instance |
-| SIGNUPS_ALLOWED | true | Allow new user registration |
-| INVITATIONS_ALLOWED | true | Allow inviting users |
-| ADMIN_TOKEN | - | Token for admin panel access |
-| WEBSOCKET_ENABLED | true | Enable websocket notifications |
-| HTTP_PORT | 80 | HTTP port mapping |
-| WEBSOCKET_PORT | 3012 | WebSocket port mapping |
 
 ## Resources
 
 - [Vaultwarden Wiki](https://github.com/dani-garcia/vaultwarden/wiki)
 - [Bitwarden Help Center](https://bitwarden.com/help/)
-- [Docker Documentation](https://docs.docker.com/)
-
-## License
-
-This configuration is provided as-is. Bitwarden and Vaultwarden are subject to their respective licenses.
