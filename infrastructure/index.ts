@@ -1,6 +1,9 @@
 import * as pulumi from "@pulumi/pulumi";
 import * as aws from "@pulumi/aws";
 
+// Import Kubernetes resources
+import "./kubernetes";
+
 // Configuration
 const config = new pulumi.Config();
 const projectName = "bitwarden-backup";
