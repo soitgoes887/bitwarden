@@ -14,11 +14,7 @@
     "typescript": "^5.0.0"
   },
   "dependencies": {
-<<<<<<< Updated upstream
-    "@pulumi/aws": "^6.0.0",
-=======
     "@pulumi/kubernetes": "^4.0.0",
->>>>>>> Stashed changes
     "@pulumi/pulumi": "^3.0.0"
   }
 }

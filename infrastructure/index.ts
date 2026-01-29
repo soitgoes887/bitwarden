@@ -1,9 +1,5 @@
 import * as pulumi from "@pulumi/pulumi";
-<<<<<<< Updated upstream
-import * as aws from "@pulumi/aws";
-=======
 import * as k8s from "@pulumi/kubernetes";
->>>>>>> Stashed changes
 
 // Configuration
 const config = new pulumi.Config();
