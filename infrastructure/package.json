@@ -1,7 +1,7 @@
 {
-  "name": "bitwarden-backup-infrastructure",
+  "name": "bitwarden-infrastructure",
   "version": "1.0.0",
-  "description": "Pulumi infrastructure for Bitwarden backup S3 storage",
+  "description": "Pulumi infrastructure for Bitwarden (Vaultwarden) on Kubernetes",
   "main": "index.ts",
   "scripts": {
     "build": "tsc",
@@ -14,7 +14,11 @@
     "typescript": "^5.0.0"
   },
   "dependencies": {
+<<<<<<< Updated upstream
     "@pulumi/aws": "^6.0.0",
+=======
+    "@pulumi/kubernetes": "^4.0.0",
+>>>>>>> Stashed changes
     "@pulumi/pulumi": "^3.0.0"
   }
 }

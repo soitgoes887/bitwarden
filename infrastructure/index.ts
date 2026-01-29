@@ -1,157 +1,262 @@
 import * as pulumi from "@pulumi/pulumi";
+<<<<<<< Updated upstream
 import * as aws from "@pulumi/aws";
+=======
+import * as k8s from "@pulumi/kubernetes";
+>>>>>>> Stashed changes
 
 // Configuration
 const config = new pulumi.Config();
-const projectName = "bitwarden-backup";
+const image = config.get("vaultwardenImage") || "vaultwarden/server:latest";
+const host = config.get("host") || "bitwarden.win";
+const kubeconfigContext = config.get("kubeconfigContext") || "kubernetes-admin@kubernetes";
+const storageSize = config.get("storageSize") || "100Mi";
 
-// Create S3 bucket for backups
-const bucket = new aws.s3.Bucket(`${projectName}-bucket`, {
-    bucketPrefix: `${projectName}-`,
+// SMTP configuration
+const smtpConfig = new pulumi.Config("smtp");
 
-    // Enable versioning for backup safety
-    versioning: {
-        enabled: true,
+// Create Kubernetes provider using local kubeconfig
+const k8sProvider = new k8s.Provider("k8s-provider", {
+    context: kubeconfigContext,
+    enableServerSideApply: true,
+});
+
+// Create bitwarden namespace
+const namespace = new k8s.core.v1.Namespace("bitwarden-namespace", {
+    metadata: {
+        name: "bitwarden",
     },
+}, { provider: k8sProvider });
 
-    // Server-side encryption
-    serverSideEncryptionConfiguration: {
-        rule: {
-            applyServerSideEncryptionByDefault: {
-                sseAlgorithm: "AES256",
+// Create PersistentVolume with hostPath (data stored on node at /data/bitwarden)
+const pv = new k8s.core.v1.PersistentVolume("bitwarden-pv", {
+    metadata: {
+        name: "bitwarden-data-pv",
+        labels: { app: "bitwarden" },
+    },
+    spec: {
+        capacity: {
+            storage: storageSize,
+        },
+        accessModes: ["ReadWriteOnce"],
+        persistentVolumeReclaimPolicy: "Retain",
+        storageClassName: "manual",
+        hostPath: {
+            path: "/data/bitwarden",
+            type: "DirectoryOrCreate",
+        },
+    },
+}, { provider: k8sProvider });
+
+// Create PersistentVolumeClaim for vaultwarden data
+const pvc = new k8s.core.v1.PersistentVolumeClaim("bitwarden-pvc", {
+    metadata: {
+        name: "bitwarden-data",
+        namespace: "bitwarden",
+    },
+    spec: {
+        accessModes: ["ReadWriteOnce"],
+        storageClassName: "manual",
+        resources: {
+            requests: {
+                storage: storageSize,
+            },
+        },
+        selector: {
+            matchLabels: { app: "bitwarden" },
+        },
+    },
+}, { provider: k8sProvider, dependsOn: [namespace, pv] });
+
+// Create Secret for sensitive configuration
+const secret = new k8s.core.v1.Secret("bitwarden-secret", {
+    metadata: {
+        name: "bitwarden-secret",
+        namespace: "bitwarden",
+    },
+    type: "Opaque",
+    stringData: {
+        ADMIN_TOKEN: config.getSecret("adminToken") || "",
+        SMTP_PASSWORD: smtpConfig.getSecret("password") || "",
+    },
+}, { provider: k8sProvider, dependsOn: [namespace] });
+
+// Create ConfigMap for non-sensitive configuration
+const configMap = new k8s.core.v1.ConfigMap("bitwarden-config", {
+    metadata: {
+        name: "bitwarden-config",
+        namespace: "bitwarden",
+    },
+    data: {
+        DOMAIN: `https://${host}`,
+        SIGNUPS_ALLOWED: "false",
+        INVITATIONS_ALLOWED: "true",
+        SHOW_PASSWORD_HINT: "false",
+        WEBSOCKET_ENABLED: "true",
+        WEB_VAULT_ENABLED: "true",
+        TZ: "Europe/London",
+        // SMTP configuration
+        SMTP_HOST: smtpConfig.get("host") || "email-smtp.eu-west-2.amazonaws.com",
+        SMTP_PORT: smtpConfig.get("port") || "587",
+        SMTP_SECURITY: "starttls",
+        SMTP_FROM: smtpConfig.get("from") || "hello@bitwarden.win",
+        SMTP_USERNAME: smtpConfig.get("username") || "",
+    },
+}, { provider: k8sProvider, dependsOn: [namespace] });
+
+// Create bitwarden deployment
+const deployment = new k8s.apps.v1.Deployment("bitwarden-deployment", {
+    metadata: {
+        name: "bitwarden",
+        namespace: "bitwarden",
+        labels: { app: "bitwarden" },
+        annotations: {
+            "pulumi.com/patchForce": "true",
+        },
+    },
+    spec: {
+        replicas: 1,
+        strategy: {
+            type: "Recreate",
+        },
+        selector: {
+            matchLabels: { app: "bitwarden" },
+        },
+        template: {
+            metadata: {
+                labels: { app: "bitwarden" },
+            },
+            spec: {
+                containers: [{
+                    name: "vaultwarden",
+                    image: image,
+                    imagePullPolicy: "Always",
+                    ports: [
+                        { containerPort: 80, name: "http" },
+                        { containerPort: 3012, name: "websocket" },
+                    ],
+                    envFrom: [
+                        { configMapRef: { name: "bitwarden-config" } },
+                        { secretRef: { name: "bitwarden-secret" } },
+                    ],
+                    volumeMounts: [{
+                        name: "data",
+                        mountPath: "/data",
+                    }],
+                    resources: {
+                        requests: {
+                            memory: "128Mi",
+                            cpu: "100m",
+                        },
+                        limits: {
+                            memory: "256Mi",
+                            cpu: "500m",
+                        },
+                    },
+                    livenessProbe: {
+                        httpGet: {
+                            path: "/alive",
+                            port: 80,
+                        },
+                        initialDelaySeconds: 15,
+                        periodSeconds: 30,
+                    },
+                    readinessProbe: {
+                        httpGet: {
+                            path: "/alive",
+                            port: 80,
+                        },
+                        initialDelaySeconds: 5,
+                        periodSeconds: 10,
+                    },
+                }],
+                volumes: [{
+                    name: "data",
+                    persistentVolumeClaim: {
+                        claimName: "bitwarden-data",
+                    },
+                }],
             },
         },
     },
+}, { provider: k8sProvider, dependsOn: [namespace, pvc, secret, configMap] });
 
-    // Lifecycle rules to manage old backups
-    lifecycleRules: [
-        {
-            enabled: true,
-            id: "delete-old-backups",
-
-            // Delete backups older than 90 days
-            expiration: {
-                days: 90,
-            },
-
-            // Move to cheaper storage after 30 days
-            transitions: [
-                {
-                    days: 30,
-                    storageClass: "STANDARD_IA",
-                },
-                {
-                    days: 60,
-                    storageClass: "GLACIER_IR",
-                },
-            ],
-        },
-        {
-            enabled: true,
-            id: "delete-old-versions",
-
-            // Delete old versions after 30 days
-            noncurrentVersionExpiration: {
-                days: 30,
-            },
-        },
-    ],
-
-    tags: {
-        Name: "Bitwarden Backup Storage",
-        Purpose: "Automated backups",
-        ManagedBy: "Pulumi",
+// Create bitwarden service
+const service = new k8s.core.v1.Service("bitwarden-service", {
+    metadata: {
+        name: "bitwarden",
+        namespace: "bitwarden",
     },
-});
-
-// Block all public access to the bucket
-const bucketPublicAccessBlock = new aws.s3.BucketPublicAccessBlock(`${projectName}-public-access-block`, {
-    bucket: bucket.id,
-    blockPublicAcls: true,
-    blockPublicPolicy: true,
-    ignorePublicAcls: true,
-    restrictPublicBuckets: true,
-});
-
-// Create IAM user for backup operations
-const backupUser = new aws.iam.User(`${projectName}-user`, {
-    name: `${projectName}-user`,
-    tags: {
-        Purpose: "Bitwarden backup automation",
-        ManagedBy: "Pulumi",
-    },
-});
-
-// Create IAM policy for the backup user
-const backupUserPolicy = new aws.iam.UserPolicy(`${projectName}-user-policy`, {
-    user: backupUser.name,
-    policy: pulumi.all([bucket.arn]).apply(([bucketArn]) => JSON.stringify({
-        Version: "2012-10-17",
-        Statement: [
+    spec: {
+        type: "ClusterIP",
+        selector: { app: "bitwarden" },
+        ports: [
             {
-                Effect: "Allow",
-                Action: [
-                    "s3:PutObject",
-                    "s3:PutObjectAcl",
-                    "s3:GetObject",
-                    "s3:ListBucket",
-                    "s3:DeleteObject",
-                ],
-                Resource: [
-                    bucketArn,
-                    `${bucketArn}/*`,
-                ],
+                name: "http",
+                port: 80,
+                targetPort: 80,
+            },
+            {
+                name: "websocket",
+                port: 3012,
+                targetPort: 3012,
             },
         ],
-    })),
-});
+    },
+}, { provider: k8sProvider, dependsOn: [namespace] });
 
-// Create access key for the backup user
-const backupUserAccessKey = new aws.iam.AccessKey(`${projectName}-access-key`, {
-    user: backupUser.name,
-});
+// Create bitwarden ingress with TLS
+const ingress = new k8s.networking.v1.Ingress("bitwarden-ingress", {
+    metadata: {
+        name: "bitwarden",
+        namespace: "bitwarden",
+        annotations: {
+            "cert-manager.io/cluster-issuer": "letsencrypt-prod",
+            "nginx.ingress.kubernetes.io/proxy-body-size": "100m",
+            "nginx.ingress.kubernetes.io/proxy-read-timeout": "3600",
+            "nginx.ingress.kubernetes.io/proxy-send-timeout": "3600",
+        },
+    },
+    spec: {
+        ingressClassName: "nginx",
+        tls: [{
+            hosts: [host],
+            secretName: "bitwarden-tls",
+        }],
+        rules: [{
+            host: host,
+            http: {
+                paths: [
+                    {
+                        path: "/",
+                        pathType: "Prefix",
+                        backend: {
+                            service: {
+                                name: "bitwarden",
+                                port: { number: 80 },
+                            },
+                        },
+                    },
+                    {
+                        path: "/notifications/hub",
+                        pathType: "Prefix",
+                        backend: {
+                            service: {
+                                name: "bitwarden",
+                                port: { number: 3012 },
+                            },
+                        },
+                    },
+                ],
+            },
+        }],
+    },
+}, { provider: k8sProvider, dependsOn: [namespace, service] });
 
-// Export the bucket name and user credentials
-export const bucketName = bucket.id;
-export const bucketArn = bucket.arn;
-export const region = aws.config.region;
-export const accessKeyId = backupUserAccessKey.id;
-export const secretAccessKey = backupUserAccessKey.secret;
-
-// Export configuration for .env file
-export const envConfig = pulumi.interpolate`
-# AWS S3 Backup Configuration
-AWS_ACCESS_KEY_ID=${backupUserAccessKey.id}
-AWS_SECRET_ACCESS_KEY=${backupUserAccessKey.secret}
-AWS_REGION=${aws.config.region}
-S3_BUCKET=${bucket.id}
-S3_PREFIX=bitwarden/
-`;
-
-// Export summary
-export const summary = pulumi.interpolate`
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Bitwarden Backup Infrastructure Created!
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-S3 Bucket: ${bucket.id}
-Region: ${aws.config.region}
-IAM User: ${backupUser.name}
-
-Features Enabled:
-✓ Server-side encryption (AES256)
-✓ Versioning enabled
-✓ Public access blocked
-✓ Lifecycle policies:
-  - Move to cheaper storage after 30 days
-  - Archive to Glacier after 60 days
-  - Delete backups after 90 days
-  - Delete old versions after 30 days
-
-Next Steps:
-1. Copy the credentials above to your .env file
-2. Run: docker compose up -d --build backup
-3. Test: docker compose exec backup /usr/local/bin/backup.sh
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-`;
+// Exports
+export const k8sNamespace = namespace.metadata.name;
+export const k8sDeployment = deployment.metadata.name;
+export const k8sImage = image;
+export const k8sIngressHost = host;
+export const k8sUrl = `https://${host}`;
+export const k8sPvcSize = storageSize;
