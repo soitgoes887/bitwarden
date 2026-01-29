@@ -34,8 +34,8 @@ jobs:
       - name: Install infrastructure dependencies
         working-directory: infrastructure
         run: |
+          rm -rf node_modules package-lock.json
           npm install
-          npx pulumi install
 
       - name: Setup kubeconfig
         run: |
