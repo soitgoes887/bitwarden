@@ -290,7 +290,7 @@ const backupCronJob = new k8s.batch.v1.CronJob("bitwarden-backup", {
                                 `set -e && \
                                 apk add --no-cache sqlite aws-cli && \
                                 BACKUP_FILE="bitwarden-$(date +%Y%m%d-%H%M%S).sqlite.gz" && \
-                                sqlite3 /data/db.sqlite ".backup '/tmp/backup.sqlite'" && \
+                                sqlite3 /data/db.sqlite3 ".backup '/tmp/backup.sqlite'" && \
                                 gzip -c /tmp/backup.sqlite > /tmp/$BACKUP_FILE && \
                                 aws s3 cp /tmp/$BACKUP_FILE s3://${s3Bucket}/$BACKUP_FILE --endpoint-url=${s3Endpoint} && \
                                 echo "Backup completed: $BACKUP_FILE"`
