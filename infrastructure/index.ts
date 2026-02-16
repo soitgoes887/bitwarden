@@ -293,7 +293,8 @@ const backupCronJob = new k8s.batch.v1.CronJob("bitwarden-backup", {
                                 sqlite3 /data/db.sqlite3 ".backup '/tmp/backup.sqlite'" && \
                                 gzip -c /tmp/backup.sqlite > /tmp/$BACKUP_FILE && \
                                 aws s3 cp /tmp/$BACKUP_FILE s3://${s3Bucket}/$BACKUP_FILE --endpoint-url=${s3Endpoint} && \
-                                echo "Backup completed: $BACKUP_FILE"`
+                                aws s3 cp /tmp/$BACKUP_FILE s3://${s3Bucket}/bitwarden-latest.sqlite.gz --endpoint-url=${s3Endpoint} && \
+                                echo "Backup completed: $BACKUP_FILE (also copied to bitwarden-latest.sqlite.gz)"`
                             ],
                             envFrom: [{ secretRef: { name: "backup-credentials" } }],
                             volumeMounts: [{
@@ -326,6 +327,95 @@ const backupCronJob = new k8s.batch.v1.CronJob("bitwarden-backup", {
     },
 }, { provider: k8sProvider, dependsOn: [namespace, pvc, backupSecret] });
 
+// Create ConfigMap with restore script
+const restoreConfigMap = new k8s.core.v1.ConfigMap("restore-config", {
+    metadata: {
+        name: "restore-config",
+        namespace: "bitwarden",
+    },
+    data: {
+        "restore.sh": `#!/bin/sh
+set -e
+
+BACKUP_FILE=\${BACKUP_FILE:-bitwarden-latest.sqlite.gz}
+
+echo "Installing dependencies..."
+apk add --no-cache sqlite aws-cli
+
+echo "Downloading backup: $BACKUP_FILE"
+aws s3 cp s3://${s3Bucket}/$BACKUP_FILE /tmp/backup.sqlite.gz --endpoint-url=${s3Endpoint}
+
+echo "Decompressing backup..."
+gunzip /tmp/backup.sqlite.gz
+
+echo "Backing up current database..."
+if [ -f /data/db.sqlite3 ]; then
+    cp /data/db.sqlite3 /data/db.sqlite3.pre-restore
+    echo "Current database backed up to db.sqlite3.pre-restore"
+fi
+
+echo "Restoring database..."
+cp /tmp/backup.sqlite /data/db.sqlite3
+
+echo "Restore completed successfully!"
+echo "Remember to scale up the bitwarden deployment:"
+echo "  kubectl scale deployment bitwarden -n bitwarden --replicas=1"
+`,
+    },
+}, { provider: k8sProvider, dependsOn: [namespace] });
+
+// Create restore Job (suspended by default - run manually)
+const restoreJob = new k8s.batch.v1.Job("bitwarden-restore", {
+    metadata: {
+        name: "bitwarden-restore",
+        namespace: "bitwarden",
+    },
+    spec: {
+        suspend: true,  // Job is suspended - must be manually unsuspended to run
+        backoffLimit: 1,
+        template: {
+            spec: {
+                containers: [{
+                    name: "restore",
+                    image: "alpine:latest",
+                    command: ["/bin/sh", "/scripts/restore.sh"],
+                    env: [{
+                        name: "BACKUP_FILE",
+                        value: "bitwarden-latest.sqlite.gz",
+                    }],
+                    envFrom: [{ secretRef: { name: "backup-credentials" } }],
+                    volumeMounts: [
+                        {
+                            name: "data",
+                            mountPath: "/data",
+                        },
+                        {
+                            name: "scripts",
+                            mountPath: "/scripts",
+                        },
+                    ],
+                }],
+                restartPolicy: "Never",
+                volumes: [
+                    {
+                        name: "data",
+                        persistentVolumeClaim: {
+                            claimName: "bitwarden-data",
+                        },
+                    },
+                    {
+                        name: "scripts",
+                        configMap: {
+                            name: "restore-config",
+                            defaultMode: 0o755,
+                        },
+                    },
+                ],
+            },
+        },
+    },
+}, { provider: k8sProvider, dependsOn: [namespace, pvc, backupSecret, restoreConfigMap] });
+
 // Exports
 export const k8sNamespace = namespace.metadata.name;
 export const k8sDeployment = deployment.metadata.name;
@@ -335,3 +425,26 @@ export const k8sUrl = `https://${host}`;
 export const k8sPvcSize = storageSize;
 export const k8sBackupCronJob = backupCronJob.metadata.name;
 export const k8sBackupSchedule = "Weekly (Sunday 3 AM UTC)";
+export const k8sRestoreJob = restoreJob.metadata.name;
+export const k8sRestoreInstructions = `
+To restore from the latest backup:
+
+1. Scale down bitwarden:
+   kubectl scale deployment bitwarden -n bitwarden --replicas=0
+
+2. Run restore job:
+   kubectl patch job bitwarden-restore -n bitwarden -p '{"spec":{"suspend":false}}'
+
+3. Watch logs:
+   kubectl logs -n bitwarden job/bitwarden-restore -f
+
+4. Scale up bitwarden:
+   kubectl scale deployment bitwarden -n bitwarden --replicas=1
+
+5. Reset job for next use:
+   kubectl delete job bitwarden-restore -n bitwarden
+   pulumi up
+
+To restore a specific backup, edit the job first:
+   kubectl patch job bitwarden-restore -n bitwarden --type='json' -p='[{"op":"replace","path":"/spec/template/spec/containers/0/env/0/value","value":"bitwarden-YYYYMMDD-HHMMSS.sqlite.gz"}]'
+`;
