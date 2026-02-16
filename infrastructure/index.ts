@@ -369,6 +369,9 @@ const restoreJob = new k8s.batch.v1.Job("bitwarden-restore", {
     metadata: {
         name: "bitwarden-restore",
         namespace: "bitwarden",
+        annotations: {
+            "pulumi.com/skipAwait": "true",  // Don't wait for suspended job
+        },
     },
     spec: {
         suspend: true,  // Job is suspended - must be manually unsuspended to run
