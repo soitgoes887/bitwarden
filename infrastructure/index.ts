@@ -262,8 +262,8 @@ const backupSecret = new k8s.core.v1.Secret("backup-secret", {
     },
     type: "Opaque",
     stringData: {
-        AWS_ACCESS_KEY_ID: backupConfig.getSecret("s3AccessKey") || "",
-        AWS_SECRET_ACCESS_KEY: backupConfig.getSecret("s3SecretKey") || "",
+        AWS_ACCESS_KEY_ID: backupConfig.requireSecret("s3AccessKey"),
+        AWS_SECRET_ACCESS_KEY: backupConfig.requireSecret("s3SecretKey"),
     },
 }, { provider: k8sProvider, dependsOn: [namespace] });
 
