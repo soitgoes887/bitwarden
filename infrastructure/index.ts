@@ -11,6 +11,11 @@ const storageSize = config.get("storageSize") || "100Mi";
 // SMTP configuration
 const smtpConfig = new pulumi.Config("smtp");
 
+// Backup configuration
+const backupConfig = new pulumi.Config("backup");
+const s3Endpoint = backupConfig.get("s3Endpoint") || "https://fsn1.your-objectstorage.com";
+const s3Bucket = backupConfig.get("s3Bucket") || "bitwarden-backup";
+
 // Create Kubernetes provider using local kubeconfig
 const k8sProvider = new k8s.Provider("k8s-provider", {
     context: kubeconfigContext,
@@ -249,6 +254,78 @@ const ingress = new k8s.networking.v1.Ingress("bitwarden-ingress", {
     },
 }, { provider: k8sProvider, dependsOn: [namespace, service] });
 
+// Create Secret for backup S3 credentials
+const backupSecret = new k8s.core.v1.Secret("backup-secret", {
+    metadata: {
+        name: "backup-credentials",
+        namespace: "bitwarden",
+    },
+    type: "Opaque",
+    stringData: {
+        AWS_ACCESS_KEY_ID: backupConfig.getSecret("s3AccessKey") || "",
+        AWS_SECRET_ACCESS_KEY: backupConfig.getSecret("s3SecretKey") || "",
+    },
+}, { provider: k8sProvider, dependsOn: [namespace] });
+
+// Create CronJob for weekly SQLite backup to S3
+const backupCronJob = new k8s.batch.v1.CronJob("bitwarden-backup", {
+    metadata: {
+        name: "bitwarden-backup",
+        namespace: "bitwarden",
+    },
+    spec: {
+        schedule: "0 3 * * 0", // Every Sunday at 3 AM UTC
+        concurrencyPolicy: "Forbid",
+        successfulJobsHistoryLimit: 3,
+        failedJobsHistoryLimit: 3,
+        jobTemplate: {
+            spec: {
+                template: {
+                    spec: {
+                        containers: [{
+                            name: "backup",
+                            image: "alpine:latest",
+                            command: ["/bin/sh", "-c"],
+                            args: [
+                                `set -e && \
+                                apk add --no-cache sqlite aws-cli && \
+                                BACKUP_FILE="bitwarden-$(date +%Y%m%d-%H%M%S).sqlite.gz" && \
+                                sqlite3 /data/db.sqlite ".backup '/tmp/backup.sqlite'" && \
+                                gzip -c /tmp/backup.sqlite > /tmp/$BACKUP_FILE && \
+                                aws s3 cp /tmp/$BACKUP_FILE s3://${s3Bucket}/$BACKUP_FILE --endpoint-url=${s3Endpoint} && \
+                                echo "Backup completed: $BACKUP_FILE"`
+                            ],
+                            envFrom: [{ secretRef: { name: "backup-credentials" } }],
+                            volumeMounts: [{
+                                name: "data",
+                                mountPath: "/data",
+                                readOnly: true,
+                            }],
+                            resources: {
+                                requests: {
+                                    memory: "64Mi",
+                                    cpu: "50m",
+                                },
+                                limits: {
+                                    memory: "128Mi",
+                                    cpu: "200m",
+                                },
+                            },
+                        }],
+                        restartPolicy: "OnFailure",
+                        volumes: [{
+                            name: "data",
+                            persistentVolumeClaim: {
+                                claimName: "bitwarden-data",
+                            },
+                        }],
+                    },
+                },
+            },
+        },
+    },
+}, { provider: k8sProvider, dependsOn: [namespace, pvc, backupSecret] });
+
 // Exports
 export const k8sNamespace = namespace.metadata.name;
 export const k8sDeployment = deployment.metadata.name;
@@ -256,3 +333,5 @@ export const k8sImage = image;
 export const k8sIngressHost = host;
 export const k8sUrl = `https://${host}`;
 export const k8sPvcSize = storageSize;
+export const k8sBackupCronJob = backupCronJob.metadata.name;
+export const k8sBackupSchedule = "Weekly (Sunday 3 AM UTC)";
